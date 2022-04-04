@@ -1,4 +1,3 @@
-/// Did is a finate Ring R(P) where P = 2^160
 use crate::err::{Error, Result};
 use num_bigint::BigUint;
 use serde::Deserialize;
@@ -11,8 +10,17 @@ use std::str::FromStr;
 use web3::types::Address;
 use web3::types::H160;
 
+/// Did means Distributed Id of a node on a finate Ring R(P) where P = 2^160.
 #[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd, Debug, Serialize, Deserialize)]
 pub struct Did(Address);
+
+/// Rid means Resource Id. A 160 bit number calculated by sha1(data).
+#[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd, Debug, Serialize, Deserialize)]
+pub struct Rid(H160);
+
+/// Mid means MessageRelay. A 160 bit number calculated by BigUint(relay_target) + 1.
+#[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd, Debug, Serialize, Deserialize)]
+pub struct Mid(H160);
 
 impl Deref for Did {
     type Target = Address;
