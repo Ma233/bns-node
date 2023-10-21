@@ -154,8 +154,11 @@ struct RunCommand {
     #[command(flatten)]
     config_args: ConfigArgs,
 
+    #[arg(long)]
     proxy_listen_address: Option<String>,
+    #[arg(long)]
     proxy_target_did: Option<String>,
+    #[arg(long)]
     proxy_target_name: Option<String>,
 }
 
