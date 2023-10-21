@@ -213,12 +213,12 @@ pub fn wrap_custom_message(message: &TunnelMessage) -> Message {
     let backend_msg =
         BackendMessage::from((MessageType::TunnelMessage.into(), message_bytes.as_slice()));
 
-    let data = bincode::serialize(&backend_msg).unwrap();
+    let backend_msg_bytes: Vec<u8> = backend_msg.into();
 
-    let mut new_bytes: Vec<u8> = Vec::with_capacity(data.len() + 1);
+    let mut new_bytes: Vec<u8> = Vec::with_capacity(backend_msg_bytes.len() + 4);
     new_bytes.push(0);
     new_bytes.extend_from_slice(&[0u8; 3]);
-    new_bytes.extend_from_slice(&data);
+    new_bytes.extend_from_slice(&backend_msg_bytes);
 
     Message::custom(&new_bytes).unwrap()
 }
