@@ -1,4 +1,9 @@
 //! A bunch of wrap errors.
+use std::io::ErrorKind as IOErrorKind;
+
+use serde::Deserialize;
+use serde::Serialize;
+
 use crate::prelude::jsonrpc_core;
 use crate::prelude::rings_core;
 
@@ -96,10 +101,28 @@ pub enum Error {
     SerdeYamlError(#[from] serde_yaml::Error) = 1001,
     #[error("verify error: {0}")]
     VerifyError(String) = 1002,
+    #[error("tunnel not found")]
+    TunnelNotFound = 1003,
+    #[error("Tunnel error: {0:?}")]
+    TunnelError(TunnelDefeat) = 1004,
     #[error("core error: {0}")]
     CoreError(#[from] rings_core::error::Error) = 1102,
     #[error("external singer error: {0}")]
     ExternalError(String) = 1202,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Copy)]
+#[repr(u8)]
+pub enum TunnelDefeat {
+    None = 0,
+    WebrtcDatachannelSendFailed = 1,
+    ConnectionTimeout = 2,
+    ConnectionRefused = 3,
+    ConnectionAborted = 4,
+    ConnectionReset = 5,
+    NotConnected = 6,
+    ConnectionClosed = 7,
+    Unknown = u8::MAX,
 }
 
 impl Error {
@@ -118,6 +141,18 @@ impl Error {
 
     pub fn code(&self) -> u32 {
         self.discriminant()
+    }
+}
+
+impl From<IOErrorKind> for TunnelDefeat {
+    fn from(kind: IOErrorKind) -> TunnelDefeat {
+        match kind {
+            IOErrorKind::ConnectionRefused => TunnelDefeat::ConnectionRefused,
+            IOErrorKind::ConnectionAborted => TunnelDefeat::ConnectionAborted,
+            IOErrorKind::ConnectionReset => TunnelDefeat::ConnectionReset,
+            IOErrorKind::NotConnected => TunnelDefeat::NotConnected,
+            _ => TunnelDefeat::Unknown,
+        }
     }
 }
 

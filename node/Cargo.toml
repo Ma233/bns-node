@@ -20,6 +20,7 @@ crate-type = ["cdylib", "rlib"]
 default = ["node"]
 node = [
     "tokio",
+    "tokio-util",
     "hyper",
     "tower-http",
     "clap",
@@ -98,6 +99,7 @@ opentelemetry-jaeger = { version = "0.17.0", features = ["rt-tokio"], optional =
 pin-project = { version = "1", optional = true }
 reqwest = { version = "0.11", features = ["json", "rustls-tls"], optional = true, default-features = false }
 tokio = { version = "1.13.0", features = ["full"], optional = true }
+tokio-util = { version = "0.7.8", optional = true }
 tower-http = { version = "0.3.4", features = ["cors"], optional = true }
 
 # browser

@@ -7,7 +7,9 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::backend::extension::ExtensionConfig;
-use crate::backend::service::http_server::HiddenServerConfig;
+use crate::backend::service::http_server::HttpServiceConfig;
+use crate::backend::service::tcp_server::TcpServiceConfig;
+use crate::backend::service::BackendConfig;
 use crate::error::Error;
 use crate::error::Result;
 use crate::prelude::rings_core::ecc::SecretKey;
@@ -58,7 +60,9 @@ pub struct Config {
     /// When there is no configuration in the YAML file,
     /// its deserialization is equivalent to `vec![]` in Rust.
     #[serde(default)]
-    pub backend: Vec<HiddenServerConfig>,
+    pub http_services: Vec<HttpServiceConfig>,
+    #[serde(default)]
+    pub tcp_services: Vec<TcpServiceConfig>,
     pub data_storage: StorageConfig,
     pub measure_storage: StorageConfig,
     /// When there is no configuration in the YAML file,
@@ -67,9 +71,9 @@ pub struct Config {
     pub extension: ExtensionConfig,
 }
 
-impl TryFrom<Config> for ProcessorConfigSerialized {
+impl TryFrom<&Config> for ProcessorConfigSerialized {
     type Error = Error;
-    fn try_from(config: Config) -> Result<Self> {
+    fn try_from(config: &Config) -> Result<Self> {
         // Support old version
         let session_sk: String = if let Some(sk) = config.ecdsa_key {
             tracing::warn!("Field `ecdsa_key` is deprecated, use `session_sk` instead.");
@@ -77,22 +81,22 @@ impl TryFrom<Config> for ProcessorConfigSerialized {
                 .expect("create session sk failed")
                 .dump()
                 .expect("dump session sk failed")
-        } else if let Some(dk) = config.session_manager {
+        } else if let Some(ref dk) = config.session_manager {
             tracing::warn!("Field `session_manager` is deprecated, use `session_sk` instead.");
-            dk
+            dk.clone()
         } else {
-            config.session_sk.expect("session_sk is not set.")
+            config.session_sk.clone().expect("session_sk is not set.")
         };
-        if let Some(ext_ip) = config.external_ip {
+        if let Some(ref ext_ip) = config.external_ip {
             Ok(Self::new_with_ext_addr(
-                config.ice_servers,
+                config.ice_servers.clone(),
                 session_sk,
                 config.stabilize_timeout,
-                ext_ip,
+                ext_ip.clone(),
             ))
         } else {
             Ok(Self::new(
-                config.ice_servers,
+                config.ice_servers.clone(),
                 session_sk,
                 config.stabilize_timeout,
             ))
@@ -100,10 +104,20 @@ impl TryFrom<Config> for ProcessorConfigSerialized {
     }
 }
 
-impl TryFrom<Config> for ProcessorConfig {
+impl TryFrom<&Config> for ProcessorConfig {
     type Error = Error;
-    fn try_from(config: Config) -> Result<Self> {
+    fn try_from(config: &Config) -> Result<Self> {
         ProcessorConfigSerialized::try_from(config).and_then(Self::try_from)
+    }
+}
+
+impl From<&Config> for BackendConfig {
+    fn from(config: &Config) -> Self {
+        Self {
+            http_services: config.http_services.clone(),
+            tcp_services: config.tcp_services.clone(),
+            extensions: config.extension.clone(),
+        }
     }
 }
 
@@ -123,7 +137,8 @@ impl Config {
             ice_servers: DEFAULT_ICE_SERVERS.to_string(),
             stabilize_timeout: DEFAULT_STABILIZE_TIMEOUT,
             external_ip: None,
-            backend: vec![],
+            http_services: vec![],
+            tcp_services: vec![],
             data_storage: DEFAULT_DATA_STORAGE_CONFIG.clone(),
             measure_storage: DEFAULT_MEASURE_STORAGE_CONFIG.clone(),
             extension: ExtensionConfig::default(),
@@ -218,6 +233,7 @@ measure_storage:
 "#;
         let cfg: Config = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(cfg.extension, ExtensionConfig::default());
-        assert_eq!(cfg.backend, vec![]);
+        assert_eq!(cfg.http_services, vec![]);
+        assert_eq!(cfg.tcp_services, vec![]);
     }
 }

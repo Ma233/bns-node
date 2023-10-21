@@ -3259,6 +3259,7 @@ dependencies = [
  "serde_yaml",
  "thiserror",
  "tokio",
+ "tokio-util",
  "tower-http",
  "tracing",
  "tracing-log",

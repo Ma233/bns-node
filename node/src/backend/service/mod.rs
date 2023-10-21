@@ -2,6 +2,8 @@
 #![warn(missing_docs)]
 //! An Backend HTTP service handle custom message from `MessageHandler` as CallbackFn.
 pub mod http_server;
+mod proxy;
+pub mod tcp_server;
 pub mod text;
 pub mod utils;
 
@@ -15,12 +17,13 @@ use serde::Serialize;
 use tokio::sync::broadcast::Sender;
 use tokio::sync::Mutex;
 
-use self::http_server::HiddenServerConfig;
-use self::http_server::HttpServer;
-use self::text::TextEndpoint;
-use crate::backend;
 use crate::backend::extension::Extension;
 use crate::backend::extension::ExtensionConfig;
+use crate::backend::service::http_server::HttpServer;
+use crate::backend::service::http_server::HttpServiceConfig;
+use crate::backend::service::tcp_server::TcpServer;
+use crate::backend::service::tcp_server::TcpServiceConfig;
+use crate::backend::service::text::TextEndpoint;
 use crate::backend::types::BackendMessage;
 use crate::backend::types::MessageEndpoint;
 use crate::backend::types::MessageType;
@@ -37,6 +40,7 @@ use crate::prelude::*;
 pub struct Backend {
     swarm: Arc<Swarm>,
     http_server: Arc<HttpServer>,
+    tcp_server: Arc<TcpServer>,
     text_endpoint: TextEndpoint,
     extension_endpoint: Extension,
     sender: Sender<BackendMessage>,
@@ -46,19 +50,26 @@ pub struct Backend {
 /// BackendConfig
 #[derive(Deserialize, Serialize, Debug, Default)]
 pub struct BackendConfig {
-    /// http_server
-    pub hidden_servers: Vec<HiddenServerConfig>,
+    /// hidden http services
+    pub http_services: Vec<HttpServiceConfig>,
+    /// hidden tcp services
+    pub tcp_services: Vec<TcpServiceConfig>,
     /// extension
     pub extensions: ExtensionConfig,
 }
 
-impl From<(Vec<HiddenServerConfig>, ExtensionConfig)> for BackendConfig {
-    fn from((s, e): (Vec<HiddenServerConfig>, ExtensionConfig)) -> Self {
-        Self {
-            hidden_servers: s,
-            extensions: e,
-        }
-    }
+/// HiddenServerMode
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub enum HiddenServerMode {
+    /// HTTP
+    Http {
+        /// prefix of url
+        /// Example 1: http://127.0.0.1:8080
+        /// Example 2: https://mainnet.infura.io/v3
+        prefix: String,
+    },
+    /// TCP
+    Tcp {},
 }
 
 #[cfg(feature = "node")]
@@ -71,8 +82,9 @@ impl Backend {
         swarm: Arc<Swarm>,
     ) -> Result<Self> {
         Ok(Self {
-            swarm,
-            http_server: Arc::new(HttpServer::from(config.hidden_servers)),
+            swarm: swarm.clone(),
+            http_server: Arc::new(HttpServer::from(config.http_services)),
+            tcp_server: Arc::new(TcpServer::new(config.tcp_services, swarm.clone())),
             text_endpoint: TextEndpoint,
             sender,
             extension_endpoint: Extension::new(&config.extensions).await?,
@@ -87,14 +99,23 @@ impl Backend {
         Ok(data)
     }
 
-    /// Get service names from http_server config for storage register.
+    /// Get service names from server config for storage register.
     pub fn service_names(&self) -> Vec<String> {
-        self.http_server
+        let http_services = self
+            .http_server
             .services
             .iter()
             .cloned()
-            .filter_map(|b| b.register_service)
-            .collect::<Vec<_>>()
+            .filter_map(|b| b.register_service);
+
+        let tcp_services = self
+            .tcp_server
+            .services
+            .iter()
+            .cloned()
+            .filter_map(|b| b.register_service);
+
+        http_services.chain(tcp_services).collect()
     }
 }
 
@@ -142,6 +163,7 @@ impl SwarmCallback for Backend {
         let result = match msg.message_type.into() {
             MessageType::SimpleText => self.text_endpoint.handle_message(payload, &msg).await,
             MessageType::HttpRequest => self.http_server.handle_message(payload, &msg).await,
+            MessageType::TunnelMessage => self.tcp_server.handle_message(payload, &msg).await,
             MessageType::Extension => self.extension_endpoint.handle_message(payload, &msg).await,
             _ => {
                 tracing::debug!(

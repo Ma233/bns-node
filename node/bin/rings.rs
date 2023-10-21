@@ -13,6 +13,7 @@ use futures::select;
 use futures::StreamExt;
 use futures_timer::Delay;
 use rings_node::backend::service::Backend;
+use rings_node::backend::service::BackendConfig;
 use rings_node::logging::init_logging;
 use rings_node::logging::LogLevel;
 use rings_node::measure::PeriodicMeasure;
@@ -170,7 +171,7 @@ struct ClientArgs {
 impl ClientArgs {
     async fn new_client(&self) -> anyhow::Result<Client> {
         let c = config::Config::read_fs(self.config_args.config.as_str())?;
-        let process_config: ProcessorConfig = c.clone().try_into()?;
+        let process_config = ProcessorConfig::try_from(&c)?;
         let endpoint_url = self.endpoint_url.as_ref().unwrap_or(&c.endpoint_url);
         let session_sk = process_config.session_sk();
         Client::new(endpoint_url.as_str(), session_sk)
@@ -353,7 +354,8 @@ async fn daemon_run(args: RunCommand) -> anyhow::Result<()> {
         c.http_addr = http_addr;
     }
 
-    let pc = ProcessorConfig::try_from(c.clone())?;
+    let processor_config = ProcessorConfig::try_from(&c)?;
+    let backend_config = BackendConfig::from(&c);
 
     let (data_storage, measure_storage) = if let Some(storage_path) = args.storage_path {
         let storage_path = Path::new(&storage_path);
@@ -379,7 +381,7 @@ async fn daemon_run(args: RunCommand) -> anyhow::Result<()> {
     let measure = PeriodicMeasure::new(per_measure_storage);
 
     let processor = Arc::new(
-        ProcessorBuilder::from_config(&pc)?
+        ProcessorBuilder::from_config(&processor_config)?
             .storage(per_data_storage)
             .measure(measure)
             .build()?,
@@ -387,7 +389,6 @@ async fn daemon_run(args: RunCommand) -> anyhow::Result<()> {
     println!("Did: {}", processor.swarm.did());
 
     let (sender, receiver) = tokio::sync::broadcast::channel(1024);
-    let backend_config = (c.backend, c.extension).into();
     let backend = Arc::new(Backend::new(backend_config, sender, processor.swarm.clone()).await?);
     let backend_service_names = backend.service_names();
 
