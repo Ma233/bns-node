@@ -1,8 +1,7 @@
 #![allow(clippy::ptr_offset_with_cast)]
-#![warn(missing_docs)]
 //! An Backend HTTP service handle custom message from `MessageHandler` as CallbackFn.
 pub mod http_server;
-mod proxy;
+pub mod proxy;
 pub mod tcp_server;
 pub mod text;
 pub mod utils;
@@ -38,9 +37,9 @@ use crate::prelude::*;
 
 /// A Backend struct contains http_server.
 pub struct Backend {
-    swarm: Arc<Swarm>,
+    pub swarm: Arc<Swarm>,
     http_server: Arc<HttpServer>,
-    tcp_server: Arc<TcpServer>,
+    pub tcp_server: Arc<TcpServer>,
     text_endpoint: TextEndpoint,
     extension_endpoint: Extension,
     sender: Sender<BackendMessage>,

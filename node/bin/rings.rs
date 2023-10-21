@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -12,6 +13,9 @@ use futures::pin_mut;
 use futures::select;
 use futures::StreamExt;
 use futures_timer::Delay;
+use rings_node::backend::service::proxy::wrap_custom_message;
+use rings_node::backend::service::proxy::Tunnel;
+use rings_node::backend::service::proxy::TunnelMessage;
 use rings_node::backend::service::Backend;
 use rings_node::backend::service::BackendConfig;
 use rings_node::logging::init_logging;
@@ -21,13 +25,18 @@ use rings_node::native::cli::Client;
 use rings_node::native::config;
 use rings_node::native::endpoint::run_http_api;
 use rings_node::prelude::http;
+use rings_node::prelude::rings_core::dht::Did;
 use rings_node::prelude::rings_core::ecc::SecretKey;
+use rings_node::prelude::rings_core::message::PayloadSender;
+use rings_node::prelude::rings_core::prelude::uuid::Uuid;
 use rings_node::prelude::PersistenceStorage;
 use rings_node::processor::Processor;
 use rings_node::processor::ProcessorBuilder;
 use rings_node::processor::ProcessorConfig;
 use tokio::io;
 use tokio::io::AsyncBufReadExt;
+use tokio::net::TcpListener;
+use tokio::net::TcpStream;
 
 #[derive(Parser, Debug)]
 #[command(about, version, author)]
@@ -144,6 +153,10 @@ struct RunCommand {
 
     #[command(flatten)]
     config_args: ConfigArgs,
+
+    proxy_listen_address: Option<String>,
+    proxy_target_did: Option<String>,
+    proxy_target_name: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -392,14 +405,34 @@ async fn daemon_run(args: RunCommand) -> anyhow::Result<()> {
     let backend = Arc::new(Backend::new(backend_config, sender, processor.swarm.clone()).await?);
     let backend_service_names = backend.service_names();
 
-    processor.swarm.set_callback(backend).unwrap();
+    processor.swarm.set_callback(backend.clone()).unwrap();
 
-    let processor_clone = processor.clone();
-    let _ = futures::join!(
-        processor.listen(),
-        service_loop_register(&processor, backend_service_names),
-        run_http_api(c.http_addr, processor_clone, receiver),
-    );
+    if args.proxy_listen_address.is_some() {
+        let proxy_listen_address = args.proxy_listen_address.unwrap().parse()?;
+        let proxy_target_did = args.proxy_target_did.unwrap().parse()?;
+        let proxy_target_name = args.proxy_target_name.unwrap();
+
+        let processor_clone = processor.clone();
+        let backend_clone = backend.clone();
+        let _ = futures::join!(
+            processor.listen(),
+            service_loop_register(&processor, backend_service_names),
+            run_http_api(c.http_addr, processor_clone, receiver),
+            proxy_listen(
+                backend_clone,
+                proxy_listen_address,
+                proxy_target_did,
+                &proxy_target_name
+            )
+        );
+    } else {
+        let processor_clone = processor.clone();
+        let _ = futures::join!(
+            processor.listen(),
+            service_loop_register(&processor, backend_service_names),
+            run_http_api(c.http_addr, processor_clone, receiver),
+        );
+    }
 
     Ok(())
 }
@@ -423,6 +456,47 @@ async fn pubsub_run(client_args: ClientArgs, topic: String) -> anyhow::Result<()
             }
         }
     }
+}
+
+async fn proxy_listen(
+    backend: Arc<Backend>,
+    proxy_listen_address: SocketAddr,
+    proxy_target_did: Did,
+    proxy_target_name: &str,
+) -> anyhow::Result<()> {
+    let listener = TcpListener::bind(proxy_listen_address).await?;
+    loop {
+        let (socket, _) = listener.accept().await?;
+        proxy_dial(backend.clone(), socket, proxy_target_did, proxy_target_name).await?;
+    }
+}
+
+pub async fn proxy_dial(
+    backend: Arc<Backend>,
+    local_stream: TcpStream,
+    proxy_target_did: Did,
+    proxy_target_name: &str,
+) -> anyhow::Result<()> {
+    let tid = Uuid::new_v4();
+
+    let mut tunnel = Tunnel::new(tid);
+    tunnel
+        .listen(local_stream, backend.swarm.clone(), proxy_target_did)
+        .await;
+
+    backend.tcp_server.tunnels.insert(tid, tunnel);
+    backend
+        .swarm
+        .send_message(
+            wrap_custom_message(&TunnelMessage::TcpDial {
+                tid,
+                service: proxy_target_name.to_string(),
+            }),
+            proxy_target_did,
+        )
+        .await?;
+
+    Ok(())
 }
 
 #[tokio::main]

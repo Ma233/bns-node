@@ -1,5 +1,3 @@
-#![warn(missing_docs)]
-
 //! tcp server handler
 
 use std::net::SocketAddr;
