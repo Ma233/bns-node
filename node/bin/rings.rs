@@ -415,6 +415,8 @@ async fn daemon_run(args: RunCommand) -> anyhow::Result<()> {
         let proxy_target_did = args.proxy_target_did.unwrap().parse()?;
         let proxy_target_name = args.proxy_target_name.unwrap();
 
+        println!("Proxy listen: {proxy_listen_address}");
+
         let processor_clone = processor.clone();
         let backend_clone = backend.clone();
         let _ = futures::join!(
