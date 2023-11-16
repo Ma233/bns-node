@@ -7,8 +7,6 @@ use std::sync::Arc;
 
 use futures::future::Join;
 use futures::Future;
-#[cfg(feature = "node")]
-use jsonrpc_core::Metadata;
 use rings_core::message::MessagePayload;
 use rings_core::swarm::impls::ConnectionHandshake;
 use rings_transport::core::transport::ConnectionInterface;
@@ -280,9 +278,6 @@ impl ProcessorBuilder {
         })
     }
 }
-
-#[cfg(feature = "node")]
-impl Metadata for Processor {}
 
 impl Processor {
     /// Listen processor message
